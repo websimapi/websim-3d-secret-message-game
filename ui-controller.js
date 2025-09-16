@@ -1,5 +1,3 @@
-
-```javascript
 export class UIController {
     constructor(controls, valueDisplays) {
         this.controls = controls;
