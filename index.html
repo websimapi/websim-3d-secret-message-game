@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Secret Message Game</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "nipplejs": "https://esm.sh/nipplejs"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+    
+    <!-- Mobile controls -->
+    <div id="mobile-controls" style="display: none;">
+        <div id="movement-joystick"></div>
+        <div id="look-joystick"></div>
+    </div>
+    
+    <!-- Controls overlay -->
+    <div id="controls-overlay">
+        <div class="control-hint">WASD to move, Mouse to look around</div>
+        <div class="control-hint">Click objects to toggle anaglyph visibility</div>
+    </div>
+
+    <div id="app">
+        <div id="scene-container">
+            <canvas id="game-canvas"></canvas>
+        </div>
+
+        <div id="ui-container">
+            <div id="frames-container">
+                <h3>Scene Frames</h3>
+                <div id="frames-list">
+                    <!-- JS will populate this -->
+                </div>
+                <button id="add-frame-btn">+ Add Frame</button>
+            </div>
+
+            <div id="import-container">
+                <h3>Import Assets</h3>
+                <div class="import-section">
+                    <label for="model-upload">3D Model (.glb/.gltf)</label>
+                    <input type="file" id="model-upload" accept=".glb,.gltf" multiple>
+                </div>
+                <div class="import-section">
+                    <label for="world-text-input">Add World Text</label>
+                    <input type="text" id="world-text-input" placeholder="Enter text to place in world">
+                    <button id="add-world-text-btn">Add Text</button>
+                </div>
+            </div>
+
+            <div id="settings-container">
+                <h3>Anaglyph Settings</h3>
+                <div class="settings-grid">
+                    <fieldset>
+                        <legend>Red Channel Objects</legend>
+                        <div class="setting-item">
+                            <label for="red-channel-color">Color</label>
+                            <input type="color" id="red-channel-color" value="#ff0000">
+                        </div>
+                        <div class="setting-item range-item">
+                            <label for="red-channel-offset">Offset: <span id="red-channel-offset-value">0.1</span></label>
+                            <input type="range" id="red-channel-offset" min="0" max="0.5" value="0.1" step="0.01">
+                        </div>
+                    </fieldset>
+                    
+                    <fieldset>
+                        <legend>Cyan Channel Objects</legend>
+                        <div class="setting-item">
+                            <label for="cyan-channel-color">Color</label>
+                            <input type="color" id="cyan-channel-color" value="#00ffff">
+                        </div>
+                        <div class="setting-item range-item">
+                            <label for="cyan-channel-offset">Offset: <span id="cyan-channel-offset-value">-0.1</span></label>
+                            <input type="range" id="cyan-channel-offset" min="-0.5" max="0" value="-0.1" step="0.01">
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="fieldset-span-2">
+                        <legend>Camera & World</legend>
+                        <div class="setting-item range-item">
+                            <label for="movement-speed">Movement Speed: <span id="movement-speed-value">5</span></label>
+                            <input type="range" id="movement-speed" min="1" max="20" value="5" step="1">
+                        </div>
+                        <div class="setting-item range-item">
+                            <label for="mouse-sensitivity">Mouse Sensitivity: <span id="mouse-sensitivity-value">0.002</span></label>
+                            <input type="range" id="mouse-sensitivity" min="0.001" max="0.01" value="0.002" step="0.001">
+                        </div>
+                    </fieldset>
+                    
+                    <fieldset class="fieldset-span-2">
+                        <legend>General Text</legend>
+                        <div class="setting-item range-item">
+                            <label for="font-size">Font Size: <span id="font-size-value">24</span>px</label>
+                            <input type="range" id="font-size" min="8" max="72" value="24" step="1">
+                        </div>
+                        <div class="setting-item range-item">
+                            <label for="font-weight">Font Weight: <span id="font-weight-value">700</span></label>
+                            <input type="range" id="font-weight" min="100" max="900" value="700" step="100">
+                        </div>
+                        <div class="setting-item range-item">
+                            <label for="letter-spacing">Letter Spacing: <span id="letter-spacing-value">2</span>px</label>
+                            <input type="range" id="letter-spacing" min="-5" max="20" value="2" step="1">
+                        </div>
+                        <div class="setting-item range-item">
+                            <label for="line-height">Line Height: <span id="line-height-value">1.2</span></label>
+                            <input type="range" id="line-height" min="0.5" max="3" value="1.2" step="0.1">
+                        </div>
+                    </fieldset>
+                    
+                    <fieldset class="fieldset-span-2">
+                        <legend>Background</legend>
+                        <div class="setting-item">
+                            <label for="bg-color">Color</label>
+                            <input type="color" id="bg-color" value="#ffffff">
+                        </div>
+                         <div class="setting-item range-item">
+                            <label for="noise-opacity">Noise Opacity: <span id="noise-opacity-value">1.0</span></label>
+                            <input type="range" id="noise-opacity" min="0" max="1" value="1" step="0.05">
+                        </div>
+                        <div class="setting-item">
+                            <label for="noise-type">Noise Type</label>
+                            <select id="noise-type">
+                                <option value="color" selected>Color</option>
+                                <option value="grayscale">Grayscale</option>
+                            </select>
+                        </div>
+                        <div class="setting-item range-item">
+                            <label for="noise-scale">Noise Scale: <span id="noise-scale-value">1</span>px</label>
+                            <input type="range" id="noise-scale" min="1" max="10" value="1" step="1">
+                        </div>
+                    </fieldset>
+                    
+                    <fieldset class="fieldset-span-2">
+                        <legend>GIF</legend>
+                        <div class="setting-item range-item">
+                            <label for="gif-fps">Animation FPS: <span id="gif-fps-value">5</span></label>
+                            <input type="range" id="gif-fps" min="1" max="30" value="5" step="1">
+                        </div>
+                        <div class="gif-controls">
+                            <button id="play-pause-animation">Play</button>
+                            <button id="generate-gif-btn">Generate & Download GIF</button>
+                            <span id="gif-status"></span>
+                        </div>
+                    </fieldset>
+                </div>
+            </div>
+        </div>
+
+        <div id="output-container">
+            <canvas id="noise-canvas"></canvas>
+            <div id="output-scrambled" class="output-text"></div>
+            <div id="output-hidden" class="output-text"></div>
+        </div>
+    </div>
+    <script src="noise-generator.js" type="module"></script>
+    <script src="text-scrambler.js" type="module"></script>
+    <script src="frame-manager.js" type="module"></script>
+    <script src="animation-controller.js" type="module"></script>
+    <script src="gif-generator.js" type="module"></script>
+    <script src="ui-controller.js" type="module"></script>
+    <script src="main.js" type="module"></script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
