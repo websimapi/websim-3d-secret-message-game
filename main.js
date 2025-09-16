@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import nipplejs from 'nipplejs';
 import { NoiseGenerator } from './noise-generator.js';
 import { FrameManager } from './frame-manager.js';
@@ -12,6 +15,7 @@ class Game3D {
     constructor() {
         this.initElements();
         this.initThreeJS();
+        this.initPostProcessing();
         this.initComponents();
         this.initControls();
         this.setupEventListeners();
@@ -59,6 +63,10 @@ class Game3D {
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         this.camera.position.set(0, 1.6, 5);
         
+        // Create cameras for anaglyph effect
+        this.cameraL = this.camera.clone();
+        this.cameraR = this.camera.clone();
+        
         // Renderer setup
         this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -94,6 +102,47 @@ class Game3D {
         // Raycaster for object interaction
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
+    }
+
+    initPostProcessing() {
+        // Create anaglyph shader
+        const AnaglyphShader = {
+            uniforms: {
+                'mapLeft': { value: null },
+                'mapRight': { value: null }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D mapLeft;
+                uniform sampler2D mapRight;
+                varying vec2 vUv;
+                
+                void main() {
+                    vec4 colorL = texture2D(mapLeft, vUv);
+                    vec4 colorR = texture2D(mapRight, vUv);
+                    
+                    // Red-cyan anaglyph
+                    gl_FragColor = vec4(colorL.r, colorR.g, colorR.b, max(colorL.a, colorR.a));
+                }
+            `
+        };
+
+        // Create render targets
+        this.renderTargetL = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight);
+        this.renderTargetR = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight);
+
+        // Create composer for final anaglyph effect
+        this.composer = new EffectComposer(this.renderer);
+        this.anaglyphPass = new ShaderPass(AnaglyphShader);
+        this.composer.addPass(this.anaglyphPass);
+
+        this.anaglyphEnabled = false;
     }
 
     initComponents() {
@@ -331,51 +380,45 @@ class Game3D {
         this.cyanChannelObjects = [];
         
         // Sort objects into channels
+        let hasAnaglyphObjects = false;
         [...this.importedModels, ...this.worldTexts].forEach(obj => {
             if (obj.userData.isAnaglyph) {
+                hasAnaglyphObjects = true;
                 if (obj.userData.anaglyphChannel === 'red') {
                     this.redChannelObjects.push(obj);
                 } else {
                     this.cyanChannelObjects.push(obj);
                 }
-                obj.visible = true;
-            } else {
-                obj.visible = true;
             }
+            obj.visible = true;
         });
         
-        this.applyAnaglyphEffect();
+        this.anaglyphEnabled = hasAnaglyphObjects;
+        this.updateCameraPositions();
     }
 
-    applyAnaglyphEffect() {
+    updateCameraPositions() {
+        if (!this.anaglyphEnabled) return;
+        
         const redOffset = parseFloat(this.controls.redChannelOffset.value);
         const cyanOffset = parseFloat(this.controls.cyanChannelOffset.value);
-        const redColor = new THREE.Color(this.controls.redChannelColor.value);
-        const cyanColor = new THREE.Color(this.controls.cyanChannelColor.value);
+        const eyeSeparation = 0.1; // Base eye separation
         
-        // Apply red channel effects
-        this.redChannelObjects.forEach(obj => {
-            obj.position.x += redOffset;
-            obj.traverse(child => {
-                if (child.material) {
-                    if (child.material.color) {
-                        child.material.color.copy(redColor);
-                    }
-                }
-            });
-        });
+        // Update camera positions for stereoscopic effect
+        this.cameraL.position.copy(this.camera.position);
+        this.cameraR.position.copy(this.camera.position);
         
-        // Apply cyan channel effects
-        this.cyanChannelObjects.forEach(obj => {
-            obj.position.x += cyanOffset;
-            obj.traverse(child => {
-                if (child.material) {
-                    if (child.material.color) {
-                        child.material.color.copy(cyanColor);
-                    }
-                }
-            });
-        });
+        this.cameraL.rotation.copy(this.camera.rotation);
+        this.cameraR.rotation.copy(this.camera.rotation);
+        
+        // Apply horizontal offset for stereoscopic effect
+        const offsetVector = new THREE.Vector3(eyeSeparation * redOffset, 0, 0);
+        offsetVector.applyQuaternion(this.camera.quaternion);
+        this.cameraL.position.add(offsetVector);
+        
+        const offsetVectorR = new THREE.Vector3(eyeSeparation * cyanOffset, 0, 0);
+        offsetVectorR.applyQuaternion(this.camera.quaternion);
+        this.cameraR.position.add(offsetVectorR);
     }
 
     updateMovement() {
@@ -432,7 +475,45 @@ class Game3D {
         requestAnimationFrame(() => this.animate());
         
         this.updateMovement();
-        this.renderer.render(this.scene, this.camera);
+        
+        if (this.anaglyphEnabled) {
+            this.renderAnaglyph();
+        } else {
+            this.renderer.render(this.scene, this.camera);
+        }
+    }
+
+    renderAnaglyph() {
+        this.updateCameraPositions();
+        
+        // Show only red channel objects for left eye
+        this.setObjectsVisibility(this.redChannelObjects, true);
+        this.setObjectsVisibility(this.cyanChannelObjects, false);
+        this.renderer.setRenderTarget(this.renderTargetL);
+        this.renderer.render(this.scene, this.cameraL);
+        
+        // Show only cyan channel objects for right eye
+        this.setObjectsVisibility(this.redChannelObjects, false);
+        this.setObjectsVisibility(this.cyanChannelObjects, true);
+        this.renderer.setRenderTarget(this.renderTargetR);
+        this.renderer.render(this.scene, this.cameraR);
+        
+        // Show all objects for final render
+        this.setObjectsVisibility(this.redChannelObjects, true);
+        this.setObjectsVisibility(this.cyanChannelObjects, true);
+        
+        // Combine the two renders with anaglyph shader
+        this.anaglyphPass.uniforms['mapLeft'].value = this.renderTargetL.texture;
+        this.anaglyphPass.uniforms['mapRight'].value = this.renderTargetR.texture;
+        
+        this.renderer.setRenderTarget(null);
+        this.composer.render();
+    }
+
+    setObjectsVisibility(objects, visible) {
+        objects.forEach(obj => {
+            obj.visible = visible;
+        });
     }
 
     initialSetup() {

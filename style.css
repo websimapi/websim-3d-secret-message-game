@@ -30,6 +30,11 @@ body {
     color: #ccc;
 }
 
+.control-hint.anaglyph-hint {
+    color: #ff6b6b;
+    font-weight: bold;
+}
+
 #mobile-controls {
     position: fixed;
     bottom: 0;
